@@ -10,25 +10,21 @@ Herramienta OSINT para buscar información en Google usando SerpAPI. Extrae auto
 ---
 
 ## Ejemplo de salida
-════════════════════════════════════════════════════════════
-  🕵️  HERRAMIENTA OSINT CON SERPAPI (GOOGLE)
-════════════════════════════════════════════════════════════
+
+HERRAMIENTA OSINT CON SERPAPI (GOOGLE)
+
 
 🔍 Buscando en Google: Juan Pérez
 ✅ Total de resultados encontrados: 1,234,567
 ℹ️ Mostrando los primeros 30 enlaces.
 
-════════════════════════════════════════════════════════════
-🌐 PRINCIPALES ENLACES
-════════════════════════════════════════════════════════════
+PRINCIPALES ENLACES
 
 1. Juan Pérez - LinkedIn
    https://ec.linkedin.com/in/juanperez
    Experto en ciberseguridad...
 
-════════════════════════════════════════════════════════════
 🔗 PERFILES DE REDES SOCIALES
-════════════════════════════════════════════════════════════
 
 ▸ LINKEDIN (1)
   1. Juan Pérez - LinkedIn
@@ -38,9 +34,7 @@ Herramienta OSINT para buscar información en Google usando SerpAPI. Extrae auto
   1. Juan Pérez - Facebook
      https://www.facebook.com/juanperez
 
-════════════════════════════════════════════════════════════
-📧 CORREOS ELECTRÓNICOS ENCONTRADOS
-════════════════════════════════════════════════════════════
+CORREOS ELECTRÓNICOS ENCONTRADOS
 
 📧 juan.perez@empresa.com
    → https://www.empresa.com/contacto
