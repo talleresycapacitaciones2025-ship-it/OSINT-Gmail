@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Herramienta OSINT con SerpAPI para búsquedas en Google.
+Extrae perfiles de redes sociales y correos electrónicos automáticamente.
+Con mejora visual en terminal y control de cantidad de resultados.
+Uso: python3 google_osint.py
+"""
+
+import os
+import re
+import json
+import requests
+from dotenv import load_dotenv
+
+# ------------------------------------------------------------
+# CARGAR VARIABLES DE ENTORNO (GLOBALES)
+# ------------------------------------------------------------
+load_dotenv()
+SERPAPI_KEY = os.getenv("SERPAPI_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not SERPAPI_KEY:
+    print("\n❌ ERROR: No se encontró SERPAPI_KEY en el archivo .env")
+    print("   Crea un archivo .env en la raíz del proyecto con:")
+    print("   SERPAPI_KEY='tu_clave_serpapi'")
+    print("   Puedes obtener una clave en: https://serpapi.com/\n")
+    exit(1)
+
+# ------------------------------------------------------------
+# CONFIGURACIÓN DE CANTIDAD DE RESULTADOS (AJUSTA AQUÍ)
+# ------------------------------------------------------------
+# Cantidad de resultados que pide a SerpAPI (máx 100)
+NUM_RESULTADOS_TOTAL = 50   # Cambia este valor para más o menos resultados
+
+# Cantidad de enlaces principales a mostrar
+MAX_ENLACES_PRINCIPALES = 15
+
+# Cantidad de perfiles por red social a mostrar
+MAX_PERFILES_POR_RED = 10
+
+# Cantidad de "otros enlaces" a mostrar
+MAX_OTROS_ENLACES = 10
+
+# Cantidad de enlaces por correo a mostrar
+MAX_ENLACES_POR_CORREO = 5
+
+# ------------------------------------------------------------
+# CONFIGURACIÓN DE COLORES ANSI
+# ------------------------------------------------------------
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    END = '\033[0m'
+
+# ------------------------------------------------------------
+# FUNCIONES DE FORMATO VISUAL
+# ------------------------------------------------------------
+def print_header(texto: str):
+    print(f"\n{Colors.BLUE}{Colors.BOLD}{'═' * 60}")
+    print(f"  {texto}")
+    print(f"{'═' * 60}{Colors.END}\n")
+
+def print_subheader(texto: str):
+    print(f"{Colors.GREEN}{Colors.BOLD}▸ {texto}{Colors.END}")
+
+def print_info(texto: str):
+    print(f"{Colors.CYAN}  {texto}{Colors.END}")
+
+def print_success(texto: str):
+    print(f"{Colors.GREEN}✅ {texto}{Colors.END}")
+
+def print_warning(texto: str):
+    print(f"{Colors.YELLOW}⚠️ {texto}{Colors.END}")
+
+def print_error(texto: str):
+    print(f"{Colors.RED}❌ {texto}{Colors.END}")
+
+def print_correo(correo: str, enlaces: list):
+    print(f"{Colors.YELLOW}📧 {correo}{Colors.END}")
+    for enlace in enlaces[:MAX_ENLACES_POR_CORREO]:
+        print(f"   {Colors.CYAN}→ {enlace}{Colors.END}")
+    if len(enlaces) > MAX_ENLACES_POR_CORREO:
+        print(f"   {Colors.BLUE}... y {len(enlaces)-MAX_ENLACES_POR_CORREO} enlaces más.{Colors.END}")
+    print()
+
+def print_perfil(red: str, perfiles: list):
+    print(f"{Colors.GREEN}▸ {red.upper()} ({len(perfiles)}){Colors.END}")
+    for idx, perfil in enumerate(perfiles[:MAX_PERFILES_POR_RED], 1):
+        print(f"  {Colors.BLUE}{idx}.{Colors.END} {perfil['titulo']}")
+        print(f"     {Colors.CYAN}{perfil['enlace']}{Colors.END}")
+        if perfil['snippet']:
+            print(f"     {perfil['snippet'][:150]}...")
+        print()
+    if len(perfiles) > MAX_PERFILES_POR_RED:
+        print(f"  {Colors.BLUE}... y {len(perfiles)-MAX_PERFILES_POR_RED} más.{Colors.END}\n")
+
+def print_resultado_principal(idx: int, item: dict):
+    titulo = item.get('title', 'Sin título')
+    enlace = item.get('link', '')
+    snippet = item.get('snippet', '')
+    print(f"{Colors.BLUE}{idx}.{Colors.END} {Colors.BOLD}{titulo}{Colors.END}")
+    print(f"   {Colors.CYAN}{enlace}{Colors.END}")
+    if snippet:
+        print(f"   {snippet[:150]}...")
+    print()
+
+# ------------------------------------------------------------
+# 1. FUNCIÓN PARA BUSCAR EN GOOGLE
+# ------------------------------------------------------------
+def buscar_en_google(consulta: str, num_resultados: int = NUM_RESULTADOS_TOTAL, tbm: str = "") -> dict:
+    url = "https://serpapi.com/search"
+    params = {
+        "q": consulta,
+        "api_key": SERPAPI_KEY,
+        "num": num_resultados,
+        "hl": "es",
+        "gl": "ec"
+    }
+    if tbm:
+        params["tbm"] = tbm
+    try:
+        respuesta = requests.get(url, params=params, timeout=15)
+        respuesta.raise_for_status()
+        return respuesta.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+# ------------------------------------------------------------
+# 2. EXTRACCIÓN DE CORREOS ELECTRÓNICOS
+# ------------------------------------------------------------
+def extraer_correos(texto: str) -> list:
+    patron = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    return list(set(re.findall(patron, texto)))
+
+def extraer_correos_de_resultados(resultados: list) -> dict:
+    correos_encontrados = {}
+    for item in resultados:
+        texto = item.get("title", "") + " " + item.get("snippet", "")
+        correos = extraer_correos(texto)
+        enlace = item.get("link", "")
+        for correo in correos:
+            if correo not in correos_encontrados:
+                correos_encontrados[correo] = []
+            correos_encontrados[correo].append(enlace)
+    return correos_encontrados
+
+# ------------------------------------------------------------
+# 3. EXTRACCIÓN DE PERFILES DE REDES SOCIALES
+# ------------------------------------------------------------
+def extraer_perfiles_sociales(resultados: list) -> dict:
+    mapeo = {
+        "facebook": ["facebook.com", "fb.com", "fb.watch"],
+        "instagram": ["instagram.com"],
+        "twitter": ["twitter.com", "x.com"],
+        "linkedin": ["linkedin.com", "linkedin.es"],
+        "tiktok": ["tiktok.com", "vm.tiktok.com"],
+        "youtube": ["youtube.com", "youtu.be"],
+        "reddit": ["reddit.com", "redd.it"],
+        "pinterest": ["pinterest.com", "pin.it"],
+        "github": ["github.com"],
+        "whatsapp": ["whatsapp.com", "wa.me"]
+    }
+    perfiles = {red: [] for red in mapeo}
+    perfiles["otros"] = []
+    for item in resultados:
+        enlace = item.get("link", "")
+        if not enlace:
+            continue
+        enlace_lower = enlace.lower()
+        encontrado = False
+        for red, dominios in mapeo.items():
+            if any(dom in enlace_lower for dom in dominios):
+                perfiles[red].append({
+                    "titulo": item.get("title", ""),
+                    "enlace": enlace,
+                    "snippet": item.get("snippet", "")
+                })
+                encontrado = True
+                break
+        if not encontrado:
+            perfiles["otros"].append({
+                "titulo": item.get("title", ""),
+                "enlace": enlace,
+                "snippet": item.get("snippet", "")
+            })
+    return perfiles
+
+# ------------------------------------------------------------
+# 4. GENERAR INFORME CON GROQ (opcional)
+# ------------------------------------------------------------
+def generar_informe_groq(datos: dict, perfiles: dict, correos: dict) -> str:
+    try:
+        from groq import Groq
+    except ImportError:
+        return "Groq no instalado. Ejecuta: pip install groq"
+    if not GROQ_API_KEY:
+        return "GROQ_API_KEY no configurada en .env"
+    cliente = Groq(api_key=GROQ_API_KEY)
+    prompt = f"""
+    Eres un analista de OSINT. Resultados de búsqueda en Google:
+    - Total: {datos.get('total_resultados', 0)} enlaces.
+    - Perfiles sociales: {json.dumps(perfiles, indent=2, ensure_ascii=False)}
+    - Correos: {json.dumps(correos, indent=2, ensure_ascii=False)}
+    Genera un informe en español con resumen, redes, enlaces y correos encontrados.
+    """
+    try:
+        respuesta = cliente.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        return respuesta.choices[0].message.content
+    except Exception as e:
+        return f"Error: {e}"
+
+# ------------------------------------------------------------
+# 5. PROGRAMA PRINCIPAL
+# ------------------------------------------------------------
+if __name__ == "__main__":
+    # Cabecera visual
+    print(f"\n{Colors.BLUE}{Colors.BOLD}{'═' * 60}")
+    print(f"  🕵️  HERRAMIENTA OSINT CON SERPAPI (GOOGLE)")
+    print(f"{'═' * 60}{Colors.END}")
+    print(f"{Colors.CYAN}Bienvenido. Busca en Google y extrae información pública.{Colors.END}")
+    print(f"{Colors.CYAN}Nota: Se mostrarán hasta {MAX_ENLACES_PRINCIPALES} enlaces principales y hasta {MAX_PERFILES_POR_RED} perfiles por red.{Colors.END}")
+
+    consulta = input(f"\n{Colors.GREEN}🔍 ¿Qué deseas buscar? (nombre, número, empresa, correo): {Colors.END}").strip()
+    if not consulta:
+        print_error("No ingresaste nada.")
+        exit(1)
+
+    # Determinar si es número o correo para búsqueda exacta
+    if consulta.replace("+", "").replace(" ", "").replace("@", "").replace(".", "").isdigit() or "@" in consulta:
+        consulta_busqueda = f'"{consulta}"'
+    else:
+        consulta_busqueda = consulta
+
+    print_info(f"\n🔍 Buscando en Google: {consulta_busqueda}")
+    print_info(f"   Solicitando hasta {NUM_RESULTADOS_TOTAL} resultados a SerpAPI.")
+
+    respuesta_api = buscar_en_google(consulta_busqueda, num_resultados=NUM_RESULTADOS_TOTAL)
+
+    if "error" in respuesta_api:
+        print_error(f"Error: {respuesta_api['error']}")
+        exit(1)
+
+    resultados_organic = respuesta_api.get("organic_results", [])
+    total_resultados = respuesta_api.get("search_information", {}).get("total_results", 0)
+
+    print_success(f"Total de resultados encontrados según Google: {total_resultados}")
+    print_info(f"Mostrando los primeros {len(resultados_organic)} enlaces.\n")
+
+    # --- SECCIÓN: PRINCIPALES ENLACES ---
+    print_header(f"🌐 PRINCIPALES ENLACES (primeros {MAX_ENLACES_PRINCIPALES})")
+    for i, item in enumerate(resultados_organic[:MAX_ENLACES_PRINCIPALES], 1):
+        print_resultado_principal(i, item)
+    if len(resultados_organic) > MAX_ENLACES_PRINCIPALES:
+        print(f"{Colors.BLUE}... y {len(resultados_organic)-MAX_ENLACES_PRINCIPALES} enlaces más no mostrados.{Colors.END}\n")
+
+    # --- SECCIÓN: REDES SOCIALES ---
+    print_header("🔗 PERFILES DE REDES SOCIALES")
+    perfiles = extraer_perfiles_sociales(resultados_organic)
+    hay_redes = False
+    for red, lista in perfiles.items():
+        if red == "otros":
+            continue
+        if lista:
+            hay_redes = True
+            print_perfil(red, lista)
+    if not hay_redes:
+        print_warning("No se encontraron perfiles de redes sociales.")
+    else:
+        if perfiles.get("otros"):
+            print_subheader(f"OTROS ENLACES RELEVANTES (primeros {MAX_OTROS_ENLACES})")
+            for idx, item in enumerate(perfiles["otros"][:MAX_OTROS_ENLACES], 1):
+                print(f"  {Colors.BLUE}{idx}.{Colors.END} {item['titulo'][:80]}")
+                print(f"     {Colors.CYAN}{item['enlace']}{Colors.END}")
+            if len(perfiles["otros"]) > MAX_OTROS_ENLACES:
+                print(f"  {Colors.BLUE}... y {len(perfiles['otros'])-MAX_OTROS_ENLACES} más.{Colors.END}")
+            print()
+
+    # --- SECCIÓN: CORREOS ---
+    print_header("📧 CORREOS ELECTRÓNICOS ENCONTRADOS")
+    correos = extraer_correos_de_resultados(resultados_organic)
+    if correos:
+        for correo, enlaces in correos.items():
+            print_correo(correo, enlaces)
+    else:
+        print_warning("No se encontraron correos electrónicos.")
+
+    # --- SECCIÓN: INFORME CON GROQ ---
+    if GROQ_API_KEY:
+        respuesta = input(f"\n{Colors.GREEN}📄 ¿Generar informe en lenguaje natural con IA? (s/n): {Colors.END}").strip().lower()
+        if respuesta == "s":
+            print_header("🤖 INFORME GENERADO POR GROQ")
+            datos_resumen = {
+                "total_resultados": total_resultados,
+                "consulta": consulta
+            }
+            informe = generar_informe_groq(datos_resumen, perfiles, correos)
+            print(f"{Colors.BOLD}{informe}{Colors.END}")
+    else:
+        print_info("\n💡 Para informe con IA, añade GROQ_API_KEY a tu archivo .env")
+
+    print(f"\n{Colors.BLUE}{Colors.BOLD}{'═' * 60}")
+    print("  ✅ Análisis completado.")
+    print(f"{'═' * 60}{Colors.END}\n")
