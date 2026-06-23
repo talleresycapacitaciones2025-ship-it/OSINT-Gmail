@@ -9,8 +9,7 @@ Herramienta OSINT para buscar información en Google usando SerpAPI. Extrae auto
 
 ---
 
-Ejemplo de salida
-text
+## Ejemplo de salida
 ════════════════════════════════════════════════════════════
   🕵️  HERRAMIENTA OSINT CON SERPAPI (GOOGLE)
 ════════════════════════════════════════════════════════════
